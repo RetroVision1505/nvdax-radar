@@ -12,12 +12,12 @@
   <div class="max-w-md mx-auto p-4 space-y-4">
 
     <!-- Header -->
-    <div class="flex items-center justify-between border-b border-slate-800 pb-3">
-      <div>
-        <h1 class="text-lg font-bold tracking-tight text-emerald-400">NVDAX Signal Radar</h1>
-        <p id="statusText" class="text-xs text-slate-400">Menunggu inisialisasi data...</p>
+    <div class="flex items-center justify-between border-b border-slate-800 pb-3 gap-2">
+      <div class="min-w-0">
+        <h1 class="text-lg font-bold tracking-tight text-emerald-400 truncate">NVDAX Signal Radar</h1>
+        <p id="statusText" class="text-xs text-slate-400 break-words">Menunggu inisialisasi data...</p>
       </div>
-      <div class="flex gap-2">
+      <div class="flex gap-2 shrink-0">
         <button id="btnInstall" class="hidden px-2.5 py-1.5 text-xs rounded-lg bg-emerald-600 font-semibold">
           Install App
         </button>
@@ -29,13 +29,13 @@
 
     <!-- Kartu Harga & Indikator Live -->
     <div class="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-3">
-      <div class="flex justify-between items-start">
+      <div class="flex justify-between items-start gap-2">
         <div>
           <span class="text-xs text-slate-400">Estimasi Harga NVDAX (IDR)</span>
           <div id="livePriceIdr" class="text-2xl font-bold font-mono mt-0.5">Rp —</div>
           <div id="livePriceUsd" class="text-xs text-slate-400 font-mono">Acuan: $— | Kurs: Rp—</div>
         </div>
-        <div class="text-right">
+        <div class="text-right shrink-0">
           <select id="timeframeSelect" class="bg-slate-800 border border-slate-700 text-xs rounded-lg px-2 py-1">
             <option value="5m">TF 5m</option>
             <option value="15m" selected>TF 15m</option>
@@ -323,23 +323,74 @@
     });
 
     // ==========================================
-    // 5. LOOP PEMANTAU DATA PASAR & SINYAL
+    // 5. PENGAMBIL DATA PASAR & KURS (DENGAN FALLBACK)
+    // ==========================================
+    async function fetchWithTimeout(url, timeoutMs = 8000) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        const res = await fetch(url, { cache: 'no-store', signal: controller.signal });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return await res.json();
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
+    async function fetchKursUsdtIdr() {
+      try {
+        const idrData = await fetchWithTimeout('https://indodax.com/api/ticker/usdtidr');
+        const rate = Number(idrData?.ticker?.last);
+        if (rate > 1000) return { rate, source: 'Indodax' };
+      } catch (_) {}
+
+      const fbData = await fetchWithTimeout('https://open.er-api.com/v6/latest/USD');
+      const rate = Number(fbData?.rates?.IDR);
+      if (rate > 1000) return { rate, source: 'ER-API' };
+
+      throw new Error('Gagal ambil kurs IDR');
+    }
+
+    async function fetchCandlesUsd(tf) {
+      const binanceEndpoints = [
+        `https://data-api.binance.vision/api/v3/klines?symbol=NVDAUSDT&interval=${tf}&limit=60`,
+        `https://api.binance.com/api/v3/klines?symbol=NVDAUSDT&interval=${tf}&limit=60`
+      ];
+
+      let lastErr = null;
+      for (const url of binanceEndpoints) {
+        try {
+          const klines = await fetchWithTimeout(url);
+          if (Array.isArray(klines) && klines.length >= 25) {
+            return {
+              closes: klines.map(k => Number(k[4])),
+              source: new URL(url).hostname
+            };
+          }
+        } catch (e) {
+          lastErr = e;
+        }
+      }
+
+      throw new Error(`Chart API gagal (${lastErr ? lastErr.message : 'CORS/Jaringan'})`);
+    }
+
+    // ==========================================
+    // 6. LOOP PEMANTAU DATA PASAR & SINYAL
     // ==========================================
     async function fetchMarketAndAnalyze() {
       const tf = document.getElementById('timeframeSelect').value;
       const statusEl = document.getElementById('statusText');
       try {
         statusEl.textContent = 'Mengambil data pasar...';
-        const [klineRes, idrRes] = await Promise.all([
-          fetch(`https://api.binance.com/api/v3/klines?symbol=NVDAUSDT&interval=${tf}&limit=60`),
-          fetch('https://indodax.com/api/ticker/usdtidr')
+
+        const [candleInfo, kursInfo] = await Promise.all([
+          fetchCandlesUsd(tf),
+          fetchKursUsdtIdr()
         ]);
 
-        const klines = await klineRes.json();
-        const idrData = await idrRes.json();
-
-        const kursIdr = Number(idrData.ticker.last);
-        const closes = klines.map(k => Number(k[4]));
+        const closes = candleInfo.closes;
+        const kursIdr = kursInfo.rate;
         const lastUsd = closes[closes.length - 1];
         const estIdr = lastUsd * kursIdr;
 
@@ -360,7 +411,6 @@
 
         const badgeEl = document.getElementById('signalBadge');
 
-        // Cek kondisi sinyal teknikal
         const bullishCross = prevEma9 <= prevEma21 && currEma9 > currEma21;
         const pullbackEntry = currEma9 > currEma21 && rsi14 >= 45 && rsi14 <= 62;
         const bearishCross = prevEma9 >= prevEma21 && currEma9 < currEma21;
@@ -386,7 +436,6 @@
           badgeEl.className = 'mt-2 px-2.5 py-1 text-xs font-bold rounded-md bg-slate-800 text-slate-300 inline-block';
         }
 
-        // Cek posisi aktual user jika sudah diinput
         if (activePosition) {
           updatePositionUI(estIdr);
           if (!activePosition.alertedExit && estIdr >= activePosition.tp) {
@@ -401,16 +450,16 @@
         }
 
         const jam = new Date().toLocaleTimeString('id-ID');
-        statusEl.textContent = `Aktif • Pembaruan terakhir ${jam}`;
+        statusEl.textContent = `Aktif (${candleInfo.source}) • ${jam}`;
       } catch (err) {
-        statusEl.textContent = 'Gagal memuat data pasar (cek koneksi / CORS)';
+        statusEl.textContent = `Gagal: ${err.message}`;
       }
     }
 
     renderLogs();
     updatePositionUI();
     fetchMarketAndAnalyze();
-    setInterval(fetchMarketAndAnalyze, 20000); // Update tiap 20 detik
+    setInterval(fetchMarketAndAnalyze, 20000);
   </script>
 </body>
 </html>

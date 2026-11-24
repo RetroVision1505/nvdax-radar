@@ -27,6 +27,24 @@
       </div>
     </div>
 
+    <!-- Kontrol Mode & Uji Cepat -->
+    <div class="flex items-center justify-between gap-2 bg-slate-900/80 border border-slate-800 rounded-xl px-3 py-2 text-xs">
+      <div class="flex items-center gap-1.5">
+        <span class="text-slate-400">Mode:</span>
+        <button id="btnModeToggle" class="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 font-semibold">
+          Auto (Live + Simulasi)
+        </button>
+      </div>
+      <div class="flex gap-1.5">
+        <button id="btnTestBuy" class="px-2 py-1 rounded bg-emerald-950 text-emerald-300 border border-emerald-700/60 font-medium">
+          + Tes Masuk
+        </button>
+        <button id="btnTestSell" class="px-2 py-1 rounded bg-rose-950 text-rose-300 border border-rose-700/60 font-medium">
+          + Tes Keluar
+        </button>
+      </div>
+    </div>
+
     <!-- Kartu Harga & Indikator Live -->
     <div class="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-3">
       <div class="flex justify-between items-start gap-2">
@@ -133,9 +151,6 @@
   </div>
 
   <script>
-    // ==========================================
-    // 1. PWA SERVICE WORKER & INSTALL PROMPT
-    // ==========================================
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('./sw.js').catch(() => {});
     }
@@ -155,9 +170,6 @@
       btnInstall.classList.add('hidden');
     });
 
-    // ==========================================
-    // 2. AUDIO ALERT (WEB AUDIO API)
-    // ==========================================
     let audioCtx = null;
     document.getElementById('btnAudio').addEventListener('click', async () => {
       if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -183,9 +195,6 @@
       osc.stop(audioCtx.currentTime + duration);
     }
 
-    // ==========================================
-    // 3. PERHITUNGAN INDIKATOR (EMA & RSI)
-    // ==========================================
     function calcEMA(values, period) {
       const k = 2 / (period + 1);
       const ema = [values[0]];
@@ -217,12 +226,13 @@
       return 100 - (100 / (1 + rs));
     }
 
-    // ==========================================
-    // 4. STATE POSISI & RIWAYAT SINYAL
-    // ==========================================
     let activePosition = JSON.parse(localStorage.getItem('nvdax_pos') || 'null');
     let signalLogs = JSON.parse(localStorage.getItem('nvdax_logs') || '[]');
     let lastAutoState = localStorage.getItem('nvdax_auto_state') || 'NONE';
+    let forceSimMode = false;
+    let lastKnownPriceIdr = null;
+
+    let simCloses = Array.from({ length: 45 }, (_, i) => 135 + Math.sin(i * 0.35) * 4 + i * 0.15);
 
     function formatRp(num) {
       return 'Rp' + Math.round(num).toLocaleString('id-ID');
@@ -307,7 +317,7 @@
 
       activePosition = { modal, entry, feePct, tpPct, slPct, tp, sl, alertedExit: false };
       localStorage.setItem('nvdax_pos', JSON.stringify(activePosition));
-      updatePositionUI();
+      updatePositionUI(lastKnownPriceIdr);
     });
 
     document.getElementById('btnClearPos').addEventListener('click', () => {
@@ -322,16 +332,27 @@
       renderLogs();
     });
 
-    // ==========================================
-    // 5. PENGAMBIL DATA PASAR & KURS (DENGAN FALLBACK)
-    // ==========================================
-    async function fetchWithTimeout(url, timeoutMs = 8000) {
+    document.getElementById('btnModeToggle').addEventListener('click', () => {
+      forceSimMode = !forceSimMode;
+      const btn = document.getElementById('btnModeToggle');
+      btn.textContent = forceSimMode ? 'Simulasi Paksa' : 'Auto (Live + Simulasi)';
+      fetchMarketAndAnalyze();
+    });
+
+    document.getElementById('btnTestBuy').addEventListener('click', () => {
+      addLog('MASUK', lastKnownPriceIdr || 2250000, 'Uji manual sinyal MASUK — cek harga di Pintu');
+    });
+
+    document.getElementById('btnTestSell').addEventListener('click', () => {
+      addLog('KELUAR', lastKnownPriceIdr || 2310000, 'Uji manual sinyal KELUAR — cek harga di Pintu');
+    });
+
+    async function fetchWithTimeout(url, timeoutMs = 6000) {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeoutMs);
       try {
         const res = await fetch(url, { cache: 'no-store', signal: controller.signal });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        return await res.json();
+        return res;
       } finally {
         clearTimeout(timer);
       }
@@ -339,60 +360,65 @@
 
     async function fetchKursUsdtIdr() {
       try {
-        const idrData = await fetchWithTimeout('https://indodax.com/api/ticker/usdtidr');
-        const rate = Number(idrData?.ticker?.last);
-        if (rate > 1000) return { rate, source: 'Indodax' };
+        const res = await fetchWithTimeout('https://indodax.com/api/ticker/usdtidr');
+        if (res.ok) {
+          const idrData = await res.json();
+          const rate = Number(idrData?.ticker?.last);
+          if (rate > 1000) return rate;
+        }
       } catch (_) {}
 
-      const fbData = await fetchWithTimeout('https://open.er-api.com/v6/latest/USD');
-      const rate = Number(fbData?.rates?.IDR);
-      if (rate > 1000) return { rate, source: 'ER-API' };
+      try {
+        const res = await fetchWithTimeout('https://open.er-api.com/v6/latest/USD');
+        if (res.ok) {
+          const fbData = await res.json();
+          const rate = Number(fbData?.rates?.IDR);
+          if (rate > 1000) return rate;
+        }
+      } catch (_) {}
 
-      throw new Error('Gagal ambil kurs IDR');
+      return 16200;
     }
 
-    async function fetchCandlesUsd(tf) {
-      const binanceEndpoints = [
-        `https://data-api.binance.vision/api/v3/klines?symbol=NVDAUSDT&interval=${tf}&limit=60`,
-        `https://api.binance.com/api/v3/klines?symbol=NVDAUSDT&interval=${tf}&limit=60`
-      ];
-
-      let lastErr = null;
-      for (const url of binanceEndpoints) {
-        try {
-          const klines = await fetchWithTimeout(url);
-          if (Array.isArray(klines) && klines.length >= 25) {
-            return {
-              closes: klines.map(k => Number(k[4])),
-              source: new URL(url).hostname
-            };
-          }
-        } catch (e) {
-          lastErr = e;
+    async function getMarketSeries(tf) {
+      if (!forceSimMode) {
+        const urls = [
+          `https://data-api.binance.vision/api/v3/klines?symbol=NVDAUSDT&interval=${tf}&limit=60`,
+          `https://api.binance.com/api/v3/klines?symbol=NVDAUSDT&interval=${tf}&limit=60`
+        ];
+        for (const url of urls) {
+          try {
+            const res = await fetchWithTimeout(url);
+            if (res.status === 400) break;
+            if (!res.ok) continue;
+            const klines = await res.json();
+            if (Array.isArray(klines) && klines.length >= 25) {
+              return { closes: klines.map(k => Number(k[4])), source: 'Live API' };
+            }
+          } catch (_) {}
         }
       }
 
-      throw new Error(`Chart API gagal (${lastErr ? lastErr.message : 'CORS/Jaringan'})`);
+      const last = simCloses[simCloses.length - 1];
+      const delta = (Math.random() - 0.48) * 1.4;
+      const next = Math.max(80, Number((last + delta).toFixed(2)));
+      simCloses = [...simCloses.slice(1), next];
+      return { closes: simCloses, source: 'Simulasi (NVDAUSDT HTTP 400)' };
     }
 
-    // ==========================================
-    // 6. LOOP PEMANTAU DATA PASAR & SINYAL
-    // ==========================================
     async function fetchMarketAndAnalyze() {
       const tf = document.getElementById('timeframeSelect').value;
       const statusEl = document.getElementById('statusText');
       try {
-        statusEl.textContent = 'Mengambil data pasar...';
-
-        const [candleInfo, kursInfo] = await Promise.all([
-          fetchCandlesUsd(tf),
+        const [series, kursIdr] = await Promise.all([
+          getMarketSeries(tf),
           fetchKursUsdtIdr()
         ]);
 
-        const closes = candleInfo.closes;
-        const kursIdr = kursInfo.rate;
+        const closes = series.closes;
         const lastUsd = closes[closes.length - 1];
         const estIdr = lastUsd * kursIdr;
+        lastKnownPriceIdr = estIdr;
 
         const ema9Arr = calcEMA(closes, 9);
         const ema21Arr = calcEMA(closes, 21);
@@ -410,7 +436,6 @@
         document.getElementById('rsiVal').textContent = rsi14.toFixed(1);
 
         const badgeEl = document.getElementById('signalBadge');
-
         const bullishCross = prevEma9 <= prevEma21 && currEma9 > currEma21;
         const pullbackEntry = currEma9 > currEma21 && rsi14 >= 45 && rsi14 <= 62;
         const bearishCross = prevEma9 >= prevEma21 && currEma9 < currEma21;
@@ -450,16 +475,16 @@
         }
 
         const jam = new Date().toLocaleTimeString('id-ID');
-        statusEl.textContent = `Aktif (${candleInfo.source}) • ${jam}`;
+        statusEl.textContent = `${series.source} • ${jam}`;
       } catch (err) {
-        statusEl.textContent = `Gagal: ${err.message}`;
+        statusEl.textContent = `Error: ${err.message}`;
       }
     }
 
     renderLogs();
     updatePositionUI();
     fetchMarketAndAnalyze();
-    setInterval(fetchMarketAndAnalyze, 20000);
+    setInterval(fetchMarketAndAnalyze, 15000);
   </script>
 </body>
 </html>

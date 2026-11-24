@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#020617" />
+  <title>NVDAX Signal Monitor</title>
+  <link rel="manifest" href="./manifest.json" />
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen pb-10 select-none">
+  <div class="max-w-md mx-auto p-4 space-y-4">
+
+    <!-- Header -->
+    <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+      <div>
+        <h1 class="text-lg font-bold tracking-tight text-emerald-400">NVDAX Signal Radar</h1>
+        <p id="statusText" class="text-xs text-slate-400">Menunggu inisialisasi data...</p>
+      </div>
+      <div class="flex gap-2">
+        <button id="btnInstall" class="hidden px-2.5 py-1.5 text-xs rounded-lg bg-emerald-600 font-semibold">
+          Install App
+        </button>
+        <button id="btnAudio" class="px-3 py-1.5 text-xs rounded-lg bg-sky-600 hover:bg-sky-500 font-semibold">
+          Aktifkan Suara
+        </button>
+      </div>
+    </div>
+
+    <!-- Kartu Harga & Indikator Live -->
+    <div class="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-3">
+      <div class="flex justify-between items-start">
+        <div>
+          <span class="text-xs text-slate-400">Estimasi Harga NVDAX (IDR)</span>
+          <div id="livePriceIdr" class="text-2xl font-bold font-mono mt-0.5">Rp —</div>
+          <div id="livePriceUsd" class="text-xs text-slate-400 font-mono">Acuan: $— | Kurs: Rp—</div>
+        </div>
+        <div class="text-right">
+          <select id="timeframeSelect" class="bg-slate-800 border border-slate-700 text-xs rounded-lg px-2 py-1">
+            <option value="5m">TF 5m</option>
+            <option value="15m" selected>TF 15m</option>
+            <option value="1h">TF 1h</option>
+          </select>
+          <div id="signalBadge" class="mt-2 px-2.5 py-1 text-xs font-bold rounded-md bg-slate-800 text-slate-300 inline-block">
+            PANTAU
+          </div>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-3 gap-2 pt-2 border-t border-slate-800/80 text-center font-mono text-xs">
+        <div class="bg-slate-950/60 p-2 rounded-lg">
+          <div class="text-slate-400 text-[10px]">EMA 9</div>
+          <div id="ema9Val" class="font-semibold mt-0.5">—</div>
+        </div>
+        <div class="bg-slate-950/60 p-2 rounded-lg">
+          <div class="text-slate-400 text-[10px]">EMA 21</div>
+          <div id="ema21Val" class="font-semibold mt-0.5">—</div>
+        </div>
+        <div class="bg-slate-950/60 p-2 rounded-lg">
+          <div class="text-slate-400 text-[10px]">RSI 14</div>
+          <div id="rsiVal" class="font-semibold mt-0.5">—</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Pelacak Posisi Aktual Pintu -->
+    <div class="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-3">
+      <div class="flex items-center justify-between">
+        <h2 class="text-sm font-semibold">Posisi Aktual Saya (Pintu)</h2>
+        <button id="btnClearPos" class="text-xs text-rose-400 hover:underline hidden">Tutup Posisi</button>
+      </div>
+
+      <div id="formPosisi" class="space-y-2.5">
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="text-[11px] text-slate-400">Modal (Rp)</label>
+            <input id="inputModal" type="number" value="25000" class="w-full mt-1 px-3 py-2 text-sm rounded-lg bg-slate-950 border border-slate-700 font-mono" />
+          </div>
+          <div>
+            <label class="text-[11px] text-slate-400">Harga Beli di Pintu (Rp)</label>
+            <input id="inputEntry" type="number" placeholder="Contoh: 2250000" class="w-full mt-1 px-3 py-2 text-sm rounded-lg bg-slate-950 border border-slate-700 font-mono" />
+          </div>
+        </div>
+        <div class="grid grid-cols-3 gap-2">
+          <div>
+            <label class="text-[11px] text-slate-400">Est. Fee+Spread %</label>
+            <input id="inputFee" type="number" step="0.1" value="0.8" class="w-full mt-1 px-2.5 py-1.5 text-xs rounded-lg bg-slate-950 border border-slate-700 font-mono" />
+          </div>
+          <div>
+            <label class="text-[11px] text-slate-400">Target Untung %</label>
+            <input id="inputTpPct" type="number" step="0.5" value="3.0" class="w-full mt-1 px-2.5 py-1.5 text-xs rounded-lg bg-slate-950 border border-slate-700 font-mono" />
+          </div>
+          <div>
+            <label class="text-[11px] text-slate-400">Stop Loss %</label>
+            <input id="inputSlPct" type="number" step="0.5" value="1.5" class="w-full mt-1 px-2.5 py-1.5 text-xs rounded-lg bg-slate-950 border border-slate-700 font-mono" />
+          </div>
+        </div>
+        <button id="btnSavePos" class="w-full py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-xs font-semibold">
+          Simpan Posisi Masuk &amp; Hitung Target
+        </button>
+      </div>
+
+      <!-- Ringkasan Target Posisi Aktif -->
+      <div id="activePosBox" class="hidden space-y-2 pt-2 border-t border-slate-800 text-xs">
+        <div class="flex justify-between">
+          <span class="text-slate-400">Harga Beli Aktual:</span>
+          <span id="posEntryDisplay" class="font-mono font-semibold">—</span>
+        </div>
+        <div class="flex justify-between text-emerald-400">
+          <span>Target Jual Bersih (TP):</span>
+          <span id="posTpDisplay" class="font-mono font-bold">—</span>
+        </div>
+        <div class="flex justify-between text-rose-400">
+          <span>Batas Rugi (SL):</span>
+          <span id="posSlDisplay" class="font-mono font-bold">—</span>
+        </div>
+        <div class="flex justify-between pt-1 border-t border-slate-800/80">
+          <span class="text-slate-400">Estimasi Nilai Modal Kini:</span>
+          <span id="posCurrentVal" class="font-mono font-bold">—</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Log Sinyal -->
+    <div class="space-y-2">
+      <div class="flex items-center justify-between">
+        <h2 class="text-sm font-semibold">Riwayat Sinyal Terbaru</h2>
+        <button id="btnClearLog" class="text-[11px] text-slate-400 hover:text-slate-200">Hapus Log</button>
+      </div>
+      <div id="signalList" class="space-y-2"></div>
+    </div>
+
+  </div>
+
+  <script>
+    // ==========================================
+    // 1. PWA SERVICE WORKER & INSTALL PROMPT
+    // ==========================================
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('./sw.js').catch(() => {});
+    }
+
+    let deferredPrompt = null;
+    const btnInstall = document.getElementById('btnInstall');
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      deferredPrompt = e;
+      btnInstall.classList.remove('hidden');
+    });
+    btnInstall.addEventListener('click', async () => {
+      if (!deferredPrompt) return;
+      deferredPrompt.prompt();
+      await deferredPrompt.userChoice;
+      deferredPrompt = null;
+      btnInstall.classList.add('hidden');
+    });
+
+    // ==========================================
+    // 2. AUDIO ALERT (WEB AUDIO API)
+    // ==========================================
+    let audioCtx = null;
+    document.getElementById('btnAudio').addEventListener('click', async () => {
+      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      if (audioCtx.state === 'suspended') await audioCtx.resume();
+      if ('Notification' in window && Notification.permission === 'default') {
+        await Notification.requestPermission();
+      }
+      playBeep(700, 0.15);
+      document.getElementById('btnAudio').textContent = 'Suara Aktif ✓';
+      document.getElementById('btnAudio').classList.replace('bg-sky-600', 'bg-emerald-700');
+    });
+
+    function playBeep(freq = 880, duration = 0.3) {
+      if (!audioCtx) return;
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      gain.gain.value = 0.2;
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start();
+      osc.stop(audioCtx.currentTime + duration);
+    }
+
+    // ==========================================
+    // 3. PERHITUNGAN INDIKATOR (EMA & RSI)
+    // ==========================================
+    function calcEMA(values, period) {
+      const k = 2 / (period + 1);
+      const ema = [values[0]];
+      for (let i = 1; i < values.length; i++) {
+        ema.push(values[i] * k + ema[i - 1] * (1 - k));
+      }
+      return ema;
+    }
+
+    function calcRSI(values, period = 14) {
+      if (values.length <= period) return 50;
+      let gains = 0, losses = 0;
+      for (let i = 1; i <= period; i++) {
+        const diff = values[i] - values[i - 1];
+        if (diff >= 0) gains += diff;
+        else losses -= diff;
+      }
+      let avgGain = gains / period;
+      let avgLoss = losses / period;
+      for (let i = period + 1; i < values.length; i++) {
+        const diff = values[i] - values[i - 1];
+        const g = diff >= 0 ? diff : 0;
+        const l = diff < 0 ? -diff : 0;
+        avgGain = (avgGain * (period - 1) + g) / period;
+        avgLoss = (avgLoss * (period - 1) + l) / period;
+      }
+      if (avgLoss === 0) return 100;
+      const rs = avgGain / avgLoss;
+      return 100 - (100 / (1 + rs));
+    }
+
+    // ==========================================
+    // 4. STATE POSISI & RIWAYAT SINYAL
+    // ==========================================
+    let activePosition = JSON.parse(localStorage.getItem('nvdax_pos') || 'null');
+    let signalLogs = JSON.parse(localStorage.getItem('nvdax_logs') || '[]');
+    let lastAutoState = localStorage.getItem('nvdax_auto_state') || 'NONE';
+
+    function formatRp(num) {
+      return 'Rp' + Math.round(num).toLocaleString('id-ID');
+    }
+
+    function renderLogs() {
+      const list = document.getElementById('signalList');
+      if (!signalLogs.length) {
+        list.innerHTML = '<div class="text-xs text-slate-500 text-center py-4">Belum ada sinyal tercatat.</div>';
+        return;
+      }
+      list.innerHTML = signalLogs.map(item => {
+        const isBuy = item.type === 'MASUK';
+        const badge = isBuy
+          ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+          : 'bg-rose-500/20 text-rose-300 border-rose-500/40';
+        return `
+          <div class="p-3 rounded-xl bg-slate-900 border border-slate-800 flex justify-between items-center">
+            <div>
+              <div class="flex items-center gap-2">
+                <span class="px-2 py-0.5 text-[10px] font-bold rounded border ${badge}">${item.type}</span>
+                <span class="text-xs font-semibold">${item.priceText}</span>
+              </div>
+              <p class="text-[11px] text-slate-400 mt-1">${item.note}</p>
+            </div>
+            <span class="text-[10px] text-slate-500 font-mono">${item.time}</span>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function addLog(type, priceIdr, note) {
+      const now = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+      signalLogs.unshift({ type, priceText: formatRp(priceIdr), note, time: now });
+      signalLogs = signalLogs.slice(0, 30);
+      localStorage.setItem('nvdax_logs', JSON.stringify(signalLogs));
+      renderLogs();
+      playBeep(type === 'MASUK' ? 920 : 480, 0.35);
+      if ('Notification' in window && Notification.permission === 'granted') {
+        new Notification(`Sinyal ${type} NVDAX`, { body: `${formatRp(priceIdr)} — ${note}` });
+      }
+    }
+
+    function updatePositionUI(currentPriceIdr = null) {
+      const box = document.getElementById('activePosBox');
+      const btnClear = document.getElementById('btnClearPos');
+      if (!activePosition) {
+        box.classList.add('hidden');
+        btnClear.classList.add('hidden');
+        return;
+      }
+      box.classList.remove('hidden');
+      btnClear.classList.remove('hidden');
+      document.getElementById('posEntryDisplay').textContent = formatRp(activePosition.entry);
+      document.getElementById('posTpDisplay').textContent = `${formatRp(activePosition.tp)} (+${activePosition.tpPct}%)`;
+      document.getElementById('posSlDisplay').textContent = `${formatRp(activePosition.sl)} (-${activePosition.slPct}%)`;
+
+      if (currentPriceIdr) {
+        const netRatio = (currentPriceIdr / activePosition.entry) * (1 - activePosition.feePct / 100);
+        const estValue = activePosition.modal * netRatio;
+        const diff = estValue - activePosition.modal;
+        const el = document.getElementById('posCurrentVal');
+        el.textContent = `${formatRp(estValue)} (${diff >= 0 ? '+' : ''}${formatRp(diff)})`;
+        el.className = `font-mono font-bold ${diff >= 0 ? 'text-emerald-400' : 'text-rose-400'}`;
+      }
+    }
+
+    document.getElementById('btnSavePos').addEventListener('click', () => {
+      const modal = Number(document.getElementById('inputModal').value) || 25000;
+      const entry = Number(document.getElementById('inputEntry').value);
+      const feePct = Number(document.getElementById('inputFee').value) || 0.8;
+      const tpPct = Number(document.getElementById('inputTpPct').value) || 3.0;
+      const slPct = Number(document.getElementById('inputSlPct').value) || 1.5;
+
+      if (!entry || entry <= 0) {
+        alert('Masukkan harga beli aktual dari aplikasi Pintu terlebih dahulu.');
+        return;
+      }
+
+      const tp = entry * ((1 + tpPct / 100) / (1 - feePct / 100));
+      const sl = entry * (1 - slPct / 100);
+
+      activePosition = { modal, entry, feePct, tpPct, slPct, tp, sl, alertedExit: false };
+      localStorage.setItem('nvdax_pos', JSON.stringify(activePosition));
+      updatePositionUI();
+    });
+
+    document.getElementById('btnClearPos').addEventListener('click', () => {
+      activePosition = null;
+      localStorage.removeItem('nvdax_pos');
+      updatePositionUI();
+    });
+
+    document.getElementById('btnClearLog').addEventListener('click', () => {
+      signalLogs = [];
+      localStorage.removeItem('nvdax_logs');
+      renderLogs();
+    });
+
+    // ==========================================
+    // 5. LOOP PEMANTAU DATA PASAR & SINYAL
+    // ==========================================
+    async function fetchMarketAndAnalyze() {
+      const tf = document.getElementById('timeframeSelect').value;
+      const statusEl = document.getElementById('statusText');
+      try {
+        statusEl.textContent = 'Mengambil data pasar...';
+        const [klineRes, idrRes] = await Promise.all([
+          fetch(`https://api.binance.com/api/v3/klines?symbol=NVDAUSDT&interval=${tf}&limit=60`),
+          fetch('https://indodax.com/api/ticker/usdtidr')
+        ]);
+
+        const klines = await klineRes.json();
+        const idrData = await idrRes.json();
+
+        const kursIdr = Number(idrData.ticker.last);
+        const closes = klines.map(k => Number(k[4]));
+        const lastUsd = closes[closes.length - 1];
+        const estIdr = lastUsd * kursIdr;
+
+        const ema9Arr = calcEMA(closes, 9);
+        const ema21Arr = calcEMA(closes, 21);
+        const rsi14 = calcRSI(closes, 14);
+
+        const currEma9 = ema9Arr[ema9Arr.length - 1];
+        const prevEma9 = ema9Arr[ema9Arr.length - 2];
+        const currEma21 = ema21Arr[ema21Arr.length - 1];
+        const prevEma21 = ema21Arr[ema21Arr.length - 2];
+
+        document.getElementById('livePriceIdr').textContent = formatRp(estIdr);
+        document.getElementById('livePriceUsd').textContent = `Acuan: $${lastUsd.toFixed(2)} | Kurs: ${formatRp(kursIdr)}`;
+        document.getElementById('ema9Val').textContent = '$' + currEma9.toFixed(2);
+        document.getElementById('ema21Val').textContent = '$' + currEma21.toFixed(2);
+        document.getElementById('rsiVal').textContent = rsi14.toFixed(1);
+
+        const badgeEl = document.getElementById('signalBadge');
+
+        // Cek kondisi sinyal teknikal
+        const bullishCross = prevEma9 <= prevEma21 && currEma9 > currEma21;
+        const pullbackEntry = currEma9 > currEma21 && rsi14 >= 45 && rsi14 <= 62;
+        const bearishCross = prevEma9 >= prevEma21 && currEma9 < currEma21;
+
+        if (bullishCross || pullbackEntry) {
+          badgeEl.textContent = 'AREA MASUK';
+          badgeEl.className = 'mt-2 px-2.5 py-1 text-xs font-bold rounded-md bg-emerald-500/20 text-emerald-300 inline-block';
+          if (lastAutoState !== 'BUY') {
+            lastAutoState = 'BUY';
+            localStorage.setItem('nvdax_auto_state', 'BUY');
+            addLog('MASUK', estIdr, `Tren naik sehat (RSI ${rsi14.toFixed(1)}) — cek spread Pintu`);
+          }
+        } else if (bearishCross || rsi14 > 75) {
+          badgeEl.textContent = 'AREA KELUAR';
+          badgeEl.className = 'mt-2 px-2.5 py-1 text-xs font-bold rounded-md bg-rose-500/20 text-rose-300 inline-block';
+          if (lastAutoState !== 'SELL') {
+            lastAutoState = 'SELL';
+            localStorage.setItem('nvdax_auto_state', 'SELL');
+            addLog('KELUAR', estIdr, rsi14 > 75 ? `RSI jenuh beli (${rsi14.toFixed(1)})` : 'EMA 9 potong ke bawah EMA 21');
+          }
+        } else {
+          badgeEl.textContent = 'PANTAU';
+          badgeEl.className = 'mt-2 px-2.5 py-1 text-xs font-bold rounded-md bg-slate-800 text-slate-300 inline-block';
+        }
+
+        // Cek posisi aktual user jika sudah diinput
+        if (activePosition) {
+          updatePositionUI(estIdr);
+          if (!activePosition.alertedExit && estIdr >= activePosition.tp) {
+            activePosition.alertedExit = true;
+            localStorage.setItem('nvdax_pos', JSON.stringify(activePosition));
+            addLog('KELUAR', estIdr, `Target TP Bersih tercapai (${formatRp(activePosition.tp)})!`);
+          } else if (!activePosition.alertedExit && estIdr <= activePosition.sl) {
+            activePosition.alertedExit = true;
+            localStorage.setItem('nvdax_pos', JSON.stringify(activePosition));
+            addLog('KELUAR', estIdr, `Batas Stop Loss tersentuh (${formatRp(activePosition.sl)})!`);
+          }
+        }
+
+        const jam = new Date().toLocaleTimeString('id-ID');
+        statusEl.textContent = `Aktif • Pembaruan terakhir ${jam}`;
+      } catch (err) {
+        statusEl.textContent = 'Gagal memuat data pasar (cek koneksi / CORS)';
+      }
+    }
+
+    renderLogs();
+    updatePositionUI();
+    fetchMarketAndAnalyze();
+    setInterval(fetchMarketAndAnalyze, 20000); // Update tiap 20 detik
+  </script>
+</body>
+</html>

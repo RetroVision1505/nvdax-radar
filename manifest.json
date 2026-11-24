@@ -1,0 +1,18 @@
+{
+  "name": "NVDAX Signal Monitor",
+  "short_name": "NVDAX Bot",
+  "description": "Pemantau sinyal teknikal masuk & keluar NVDAX untuk eksekusi manual.",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#020617",
+  "theme_color": "#020617",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/2422/2422796.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
